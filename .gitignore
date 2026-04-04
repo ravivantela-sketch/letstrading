@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Environment & Secrets - NEVER commit this!
+.env
+
+# Database files
+data/*.db
+*.db
+
+# Logs
+logs/
+*.log
+trading_bot.log
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution
+dist/
+build/
+*.egg-info/

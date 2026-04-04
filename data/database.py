@@ -9,7 +9,10 @@ Tables:
 import sqlite3
 import json
 import os
+import sys
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Database file lives inside the data/ package directory
 DB_PATH = os.path.join(os.path.dirname(__file__), "trades.db")
@@ -248,5 +251,6 @@ def _connect() -> sqlite3.Connection:
 
 
 def _now() -> str:
-    """Return current UTC datetime as ISO string."""
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    """Return current IST datetime as ISO string (consistent with the rest of the bot)."""
+    from utils.helpers import get_ist_time
+    return get_ist_time().strftime("%Y-%m-%d %H:%M:%S")

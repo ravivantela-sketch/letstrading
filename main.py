@@ -253,8 +253,7 @@ def main():
 
     # Override config mode if passed via CLI
     if mode in ("paper", "live"):
-        os.environ["TRADING_MODE"] = mode
-        config.TRADING_MODE        = mode
+        config.TRADING_MODE = mode
 
     logger.info("=== LetsTrading Bot starting in %s mode ===", mode.upper())
 

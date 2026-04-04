@@ -54,10 +54,16 @@ def calculate_trade_params(
     """
     direction = signal.get("signal", "BUY")
     entry = signal.get("entry", current_price)
-    sl    = signal.get("sl",    entry * (1 - config.DEFAULT_SL_PCT)     if direction == "BUY"
-                                else entry * (1 + config.DEFAULT_SL_PCT))
-    target = signal.get("target", entry * (1 + config.DEFAULT_TARGET_PCT) if direction == "BUY"
-                                  else entry * (1 - config.DEFAULT_TARGET_PCT))
+
+    if direction == "BUY":
+        default_sl     = entry * (1 - config.DEFAULT_SL_PCT)
+        default_target = entry * (1 + config.DEFAULT_TARGET_PCT)
+    else:
+        default_sl     = entry * (1 + config.DEFAULT_SL_PCT)
+        default_target = entry * (1 - config.DEFAULT_TARGET_PCT)
+
+    sl     = signal.get("sl",     default_sl)
+    target = signal.get("target", default_target)
 
     qty         = calculate_position_size(capital, config.MAX_RISK_PER_TRADE, entry, sl)
     lots        = qty // config.BANK_NIFTY_LOT_SIZE

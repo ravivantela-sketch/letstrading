@@ -131,10 +131,10 @@ class UpstoxBroker:
             to_date   = datetime.today().strftime("%Y-%m-%d")
             from_date = (datetime.today() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
-            # URL-encode the instrument key (replace | with %7C)
-            key_encoded = requests.utils.quote(instrument_key, safe="")
+            # URL-encode the instrument key (pipe character must be percent-encoded)
+            instrument_key_urlencoded = requests.utils.quote(instrument_key, safe="")
             data = self._get(
-                f"/historical-candle/{key_encoded}/{interval}/{to_date}/{from_date}",
+                f"/historical-candle/{instrument_key_urlencoded}/{interval}/{to_date}/{from_date}",
             )
 
             candles = data.get("data", {}).get("candles", [])

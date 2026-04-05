@@ -17,6 +17,7 @@ from utils.helpers import format_currency, get_ist_time
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_GET_ME_API = "https://api.telegram.org/bot{token}/getMe"
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +47,17 @@ def _send_message(text: str) -> bool:
         resp.raise_for_status()
         return True
     except requests.RequestException as exc:
-        logger.error("Telegram send failed: %s", exc)
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        body = getattr(getattr(exc, "response", None), "text", "")
+        if status is not None:
+            logger.error(
+                "Telegram send failed: %s | status=%s | body=%s",
+                config.sanitize_text(exc),
+                status,
+                config.sanitize_text(body),
+            )
+        else:
+            logger.error("Telegram send failed: %s", config.sanitize_text(exc))
         return False
 
 
@@ -68,8 +79,11 @@ def send_signal_alert(signal: dict, trade_params: dict = None) -> bool:
     if direction == "WAIT":
         return False
 
-    mode_label = "⚠️ Paper Trade Mode" if config.TRADING_MODE.lower() != "live" \
-                 else "🔴 <b>LIVE Trade Mode</b>"
+    if signal.get("advisory"):
+        mode_label = "🧠 <b>ADVISORY Mode</b> (no order execution)"
+    else:
+        mode_label = "⚠️ Paper Trade Mode" if config.TRADING_MODE.lower() != "live" \
+                     else "🔴 <b>LIVE Trade Mode</b>"
 
     emoji = "🟢" if direction == "BUY" else "🔴"
 
@@ -93,8 +107,11 @@ def send_signal_alert(signal: dict, trade_params: dict = None) -> bool:
 
     confidence  = signal.get("confidence", 0)
     strategy    = signal.get("strategy",   "Unknown")
+    note        = signal.get("note",       "")
     rr_ratio    = signal.get("rr_ratio",   "–")
     timestamp   = signal.get("timestamp",  get_ist_time().strftime("%H:%M:%S IST"))
+
+    note_line = f"🧾 Why        : {note}\n" if note else ""
 
     text = (
         f"{emoji} <b>BANK NIFTY {direction} SIGNAL</b>\n"
@@ -102,6 +119,7 @@ def send_signal_alert(signal: dict, trade_params: dict = None) -> bool:
         f"📊 Strategy   : {strategy}\n"
         f"🎯 Confidence : {confidence:.0f}%\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{note_line}"
         f"📈 Entry     : {entry}\n"
         f"🛑 Stop Loss  : {sl_str}\n"
         f"✅ Target     : {tgt_str}\n"
@@ -112,6 +130,149 @@ def send_signal_alert(signal: dict, trade_params: dict = None) -> bool:
         f"{mode_label}"
     )
     return _send_message(text)
+
+
+def send_advisory_update(signal: dict, trade_params: dict = None) -> bool:
+    """Send advisory updates for both actionable and WAIT states."""
+    advisory_signal = dict(signal)
+    advisory_signal["advisory"] = True
+
+    summary = advisory_signal.get("advisory_summary", {})
+    action = summary.get("action_text", advisory_signal.get("signal", "WAIT"))
+    probability = summary.get("probability", advisory_signal.get("confidence", 0))
+    next_trend = summary.get("next_open_trend", "Neutral")
+    next_prob = summary.get("next_open_probability", 50)
+    simple_reason = summary.get("simple_reason", "No clear setup details yet.")
+    notes = summary.get("notes", advisory_signal.get("note", ""))
+    risk_text = summary.get("risk_text", "Moderate")
+    what_to_do = summary.get("what_to_do", "Wait for clearer confirmation.")
+    entry = summary.get("entry", 0)
+    sl = summary.get("sl", 0)
+    target = summary.get("target", 0)
+    rr_ratio = summary.get("rr_ratio", advisory_signal.get("rr_ratio", "1:0"))
+    analysis_meta = summary.get("analysis_meta", {})
+
+    instrument = analysis_meta.get("instrument", config.BANK_NIFTY_SYMBOL)
+    scope = analysis_meta.get("scope", "Bank Nifty index trend")
+    timeframe = analysis_meta.get("timeframe", "30minute candles")
+    lookback = analysis_meta.get("lookback", "Last 5 calendar days")
+    candles_used = analysis_meta.get("candles_used", 0)
+    expiry = analysis_meta.get("expiry", "N/A")
+    option_chain_context = analysis_meta.get("option_chain_context", "Not available")
+    features = analysis_meta.get("features", "Indicator consensus")
+
+    timestamp = advisory_signal.get("timestamp", get_ist_time().strftime("%H:%M:%S IST"))
+    text = (
+        "🧠 <b>ADVISORY Recommendation</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Action      : {action}\n"
+        f"Probability : {probability:.0f}%\n"
+        f"Risk Level  : {risk_text}\n"
+        f"Reason      : {simple_reason}\n"
+        f"Strategy    : {advisory_signal.get('strategy', 'Combined')}\n"
+        f"Notes       : {notes or 'No additional notes'}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Data Checked\n"
+        f"Instrument   : {instrument}\n"
+        f"Scope        : {scope}\n"
+        f"Timeframe    : {timeframe}\n"
+        f"Lookback     : {lookback} ({candles_used} candles)\n"
+        f"Expiry Focus : Weekly ({expiry})\n"
+        f"Option Chain : {option_chain_context}\n"
+        f"Features     : {features}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Next Open Bias : {next_trend} ({next_prob:.0f}%)\n"
+        f"Plan           : {what_to_do}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Entry/SL/TGT : {format_currency(entry)} / {format_currency(sl)} / {format_currency(target)}\n"
+        f"R:R          : {rr_ratio}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⏰ Time : {timestamp}\n"
+        "No order execution in advisory mode."
+    )
+    return _send_message(text)
+
+
+def telegram_self_test() -> dict:
+    """Validate Telegram token/chat configuration and send a test message."""
+    token = config.TELEGRAM_BOT_TOKEN
+    chat_id = config.TELEGRAM_CHAT_ID
+
+    if not token:
+        return {
+            "status": "error",
+            "message": "TELEGRAM_BOT_TOKEN is missing in .env.",
+        }
+    if not chat_id:
+        return {
+            "status": "error",
+            "message": "TELEGRAM_CHAT_ID is missing in .env.",
+        }
+
+    if ":" not in token:
+        return {
+            "status": "error",
+            "message": "TELEGRAM_BOT_TOKEN format looks invalid.",
+        }
+
+    if not (chat_id.lstrip("-").isdigit() or chat_id.startswith("@")):
+        return {
+            "status": "error",
+            "message": "TELEGRAM_CHAT_ID should be numeric (user/group) or @channelusername.",
+        }
+
+    try:
+        me_resp = requests.get(TELEGRAM_GET_ME_API.format(token=token), timeout=10)
+        me_resp.raise_for_status()
+        me_data = me_resp.json()
+        if not me_data.get("ok"):
+            return {
+                "status": "error",
+                "message": "Telegram token validation failed in getMe response.",
+            }
+    except requests.RequestException as exc:
+        return {
+            "status": "error",
+            "message": f"Token check failed: {config.sanitize_text(exc)}",
+        }
+
+    test_text = (
+        "✅ LetsTrading Telegram test successful.\n"
+        "If you can read this, advisory and trade alerts can be delivered."
+    )
+
+    payload = {
+        "chat_id": chat_id,
+        "text": test_text,
+    }
+    try:
+        send_resp = requests.post(
+            TELEGRAM_API.format(token=token),
+            json=payload,
+            timeout=10,
+        )
+        send_resp.raise_for_status()
+    except requests.RequestException as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        body = getattr(getattr(exc, "response", None), "text", "")
+        if status == 400:
+            return {
+                "status": "error",
+                "message": (
+                    "Message send failed with 400. Most likely chat_id is wrong, "
+                    "or the bot was not started/added to the target chat. "
+                    f"Body: {config.sanitize_text(body)}"
+                ),
+            }
+        return {
+            "status": "error",
+            "message": f"Message send failed: {config.sanitize_text(exc)}",
+        }
+
+    return {
+        "status": "ok",
+        "message": "Telegram token and chat_id are valid; test message sent successfully.",
+    }
 
 
 # ---------------------------------------------------------------------------

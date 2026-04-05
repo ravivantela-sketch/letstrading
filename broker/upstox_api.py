@@ -61,7 +61,16 @@ class UpstoxBroker:
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as exc:
-            logger.error("GET %s failed: %s", endpoint, exc)
+            # Try to extract API error message from response body
+            try:
+                error_detail = resp.json() if hasattr(exc, 'response') else None
+                if error_detail and isinstance(error_detail, dict):
+                    error_msg = error_detail.get('message') or error_detail.get('error') or str(error_detail)
+                    logger.error("GET %s failed: %s | API response: %s", endpoint, exc.response.status_code if hasattr(exc, 'response') else 'N/A', error_msg)
+                else:
+                    logger.error("GET %s failed: %s", endpoint, config.sanitize_text(exc))
+            except Exception:
+                logger.error("GET %s failed: %s", endpoint, config.sanitize_text(exc))
             raise
 
     def _post(self, endpoint: str, payload: dict = None) -> dict:
@@ -75,7 +84,16 @@ class UpstoxBroker:
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as exc:
-            logger.error("POST %s failed: %s", endpoint, exc)
+            # Try to extract API error message from response body
+            try:
+                error_detail = resp.json() if hasattr(exc, 'response') else None
+                if error_detail and isinstance(error_detail, dict):
+                    error_msg = error_detail.get('message') or error_detail.get('error') or str(error_detail)
+                    logger.error("POST %s failed: %s | API response: %s", endpoint, exc.response.status_code if hasattr(exc, 'response') else 'N/A', error_msg)
+                else:
+                    logger.error("POST %s failed: %s", endpoint, config.sanitize_text(exc))
+            except Exception:
+                logger.error("POST %s failed: %s", endpoint, config.sanitize_text(exc))
             raise
 
     # ------------------------------------------------------------------
@@ -114,7 +132,7 @@ class UpstoxBroker:
     def get_historical_data(
         self,
         instrument_key: str,
-        interval: str = "15minute",
+        interval: str = "30minute",
         days_back: int = 30,
     ) -> pd.DataFrame:
         """
@@ -127,6 +145,17 @@ class UpstoxBroker:
         if not self.access_token:
             return self._get_dummy_historical_data()
 
+        # Upstox v2 does not support 15minute candles.
+        # Normalize any unsupported interval to 30minute to avoid API 400 errors.
+        allowed_intervals = {"1minute", "30minute", "day", "week", "month"}
+        normalized_interval = interval
+        if interval not in allowed_intervals:
+            logger.warning(
+                "Unsupported interval '%s' requested; using '30minute' instead",
+                interval,
+            )
+            normalized_interval = "30minute"
+
         try:
             to_date   = datetime.today().strftime("%Y-%m-%d")
             from_date = (datetime.today() - timedelta(days=days_back)).strftime("%Y-%m-%d")
@@ -134,7 +163,7 @@ class UpstoxBroker:
             # URL-encode the instrument key (pipe character must be percent-encoded)
             instrument_key_urlencoded = requests.utils.quote(instrument_key, safe="")
             data = self._get(
-                f"/historical-candle/{instrument_key_urlencoded}/{interval}/{to_date}/{from_date}",
+                f"/historical-candle/{instrument_key_urlencoded}/{normalized_interval}/{to_date}/{from_date}",
             )
 
             candles = data.get("data", {}).get("candles", [])
@@ -184,7 +213,7 @@ class UpstoxBroker:
                 })
             return pd.DataFrame(records)
         except Exception as exc:
-            logger.error("Option chain failed: %s", exc)
+            logger.error("Option chain failed: %s", config.sanitize_text(exc))
             return pd.DataFrame(columns=["strike", "call_oi", "put_oi", "call_ltp", "put_ltp"])
 
     # ------------------------------------------------------------------
@@ -202,7 +231,7 @@ class UpstoxBroker:
             data = self._get("/portfolio/short-term-positions")
             return data.get("data", [])
         except Exception as exc:
-            logger.error("get_positions failed: %s", exc)
+            logger.error("get_positions failed: %s", config.sanitize_text(exc))
             return []
 
     def place_order(
@@ -253,11 +282,12 @@ class UpstoxBroker:
         }
         try:
             data = self._post("/order/place", payload)
-            logger.info("Live order placed: %s", data)
+            logger.info("Live order placed: %s", config.safe_order_response(data))
             return data
         except Exception as exc:
-            logger.error("place_order failed: %s", exc)
-            return {"status": "error", "message": str(exc)}
+            safe_error = config.sanitize_text(exc)
+            logger.error("place_order failed: %s", safe_error)
+            return {"status": "error", "message": safe_error}
 
     def cancel_order(self, order_id: str) -> dict:
         """Cancel an existing order by order_id."""
@@ -267,8 +297,9 @@ class UpstoxBroker:
         try:
             return self._post(f"/order/cancel?order_id={order_id}")
         except Exception as exc:
-            logger.error("cancel_order failed: %s", exc)
-            return {"status": "error", "message": str(exc)}
+            safe_error = config.sanitize_text(exc)
+            logger.error("cancel_order failed: %s", safe_error)
+            return {"status": "error", "message": safe_error}
 
     def get_order_history(self) -> list:
         """Fetch today's order history."""
@@ -278,7 +309,7 @@ class UpstoxBroker:
             data = self._get("/order/history")
             return data.get("data", [])
         except Exception as exc:
-            logger.error("get_order_history failed: %s", exc)
+            logger.error("get_order_history failed: %s", config.sanitize_text(exc))
             return []
 
     # ------------------------------------------------------------------

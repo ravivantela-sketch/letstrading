@@ -3,6 +3,8 @@ config.py — Central configuration for LetsTrading
 All settings loaded from .env file.
 """
 import os
+from typing import Iterable
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -62,3 +64,72 @@ BB_SQUEEZE_THRESHOLD = 0.015
 DEFAULT_SL_PCT     = 0.005
 DEFAULT_TARGET_PCT = 0.015
 SIGNAL_INTERVAL    = 5
+
+
+def _defined_secrets() -> tuple[str, ...]:
+	return tuple(
+		value for value in (
+			UPSTOX_API_KEY,
+			UPSTOX_API_SECRET,
+			UPSTOX_ACCESS_TOKEN,
+			TELEGRAM_BOT_TOKEN,
+			TELEGRAM_CHAT_ID,
+		)
+		if value
+	)
+
+
+def sanitize_text(text: object) -> str:
+	"""Redact configured secret values before logging or sending alerts."""
+	sanitized = str(text)
+	for secret in _defined_secrets():
+		sanitized = sanitized.replace(secret, "[REDACTED]")
+	return sanitized
+
+
+def missing_credentials(mode: str) -> list[str]:
+	"""Return the missing required credentials for the selected mode."""
+	required: list[tuple[str, str]] = []
+
+	if mode == "live":
+		required.extend([
+			("UPSTOX_API_KEY", UPSTOX_API_KEY),
+			("UPSTOX_API_SECRET", UPSTOX_API_SECRET),
+			("UPSTOX_ACCESS_TOKEN", UPSTOX_ACCESS_TOKEN),
+		])
+
+	return [name for name, value in required if not value]
+
+
+def safe_order_response(data: object) -> dict:
+	"""Return only non-sensitive order response fields for logs."""
+	if not isinstance(data, dict):
+		return {"summary": sanitize_text(data)}
+
+	allowed_keys: Iterable[str] = (
+		"status",
+		"order_id",
+		"mode",
+		"message",
+		"symbol",
+		"qty",
+		"type",
+		"data",
+	)
+	safe_data: dict = {}
+	for key in allowed_keys:
+		if key not in data:
+			continue
+		value = data[key]
+		if isinstance(value, dict):
+			nested = {
+				nested_key: sanitize_text(nested_value)
+				for nested_key, nested_value in value.items()
+				if nested_key in {"order_id", "status", "message"}
+			}
+			if nested:
+				safe_data[key] = nested
+			continue
+		safe_data[key] = sanitize_text(value)
+
+	return safe_data

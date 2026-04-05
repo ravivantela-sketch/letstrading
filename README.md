@@ -37,16 +37,48 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+If you want to avoid OneDrive sync issues entirely, keep both the repository and `.venv` under a local path such as `C:\Users\Ravi.Vantela\Projects\letstrading`. That is a sound setup.
+
 ### 4. Setup credentials
 ```bash
 cp .env.example .env
 # Open .env in VS Code and fill in your Upstox API keys and Telegram bot token
 ```
 
+On Windows PowerShell, use:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Keep `.env` local only. This repository already ignores `.env` and `.venv`, so your real keys and local environment should not be committed.
+
 ### 5. Run in Paper Mode (safe — no real orders)
 ```bash
 python main.py --mode paper
 ```
+
+### 5b. Run in Advisory Mode (real-data suggestions, no execution)
+```bash
+python main.py --mode advisory
+```
+
+Advisory mode fetches data and generates BUY/SELL recommendations with reasons,
+but does not place orders.
+
+It now sends plain-language guidance such as:
+- Clear action: BUY / SELL / WAIT
+- Probability percentage
+- Risk level (Lower / Moderate / Higher)
+- Next market-open trend bias
+- Simple "what to do" line
+
+### 5c. Test Telegram setup
+```bash
+python main.py --mode telegram-test
+```
+
+This validates token and chat ID, and sends a test message when configuration is correct.
 
 ### 6. Run the Dashboard
 ```bash
@@ -119,6 +151,29 @@ letstrading/
 - Install **GitHub Copilot** extension — it will help you understand and modify the code
 - Use the integrated terminal: `Ctrl+`` ` to run commands
 - Open `.env` file and fill in your credentials — never share this file!
+
+## 🔐 Public Repo Security
+- Never put real API keys, access tokens, chat IDs, or session data into tracked files.
+- Keep secrets only in `.env`, which is ignored by Git.
+- Commit only `.env.example` with placeholder values.
+- If any real secret was ever pushed to GitHub, assume it is compromised and rotate it immediately in Upstox and Telegram.
+- Before pushing, run `git status` and confirm `.env`, `.venv`, database files, and logs are not staged.
+- If a secret was accidentally tracked in the past, remove it from the repo history before trusting that key again.
+
+### Local Secret Scan Hooks
+- This checkout now uses a local Git hooks path at `.githooks`.
+- `pre-commit` scans staged files for likely credentials.
+- `pre-push` scans tracked committed files before a push leaves your machine.
+- The scanner lives at `tools/secret_scan.py` and reports only file, line, and a redacted reason.
+- If you clone the repo elsewhere, re-run `git config --local core.hooksPath .githooks` in that clone to enable the same protection.
+
+### Audit Result
+- The tracked history reviewed from this checkout showed `.env.example` in Git history, which is expected.
+- The review did not show `.env` as a tracked file in the repository history queried here.
+- That reduces the chance of public secret exposure through Git, but it does not replace key rotation if you ever pasted real values into GitHub, commits, issues, or other public locations.
+
+## 🧰 Local Environment Recommendation
+Using a local `.venv` under `C:` instead of OneDrive is the correct approach for this project. It avoids file locking, background sync churn, slow package installs, and interpreter path breakage caused by cloud-sync moves.
 
 ## ⚠️ Disclaimer
 This platform is for **educational purposes only**. Trading in financial markets involves substantial risk of loss. Always paper trade for at least 30 days before using real capital. The authors are not responsible for any financial losses.
